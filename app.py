@@ -176,37 +176,40 @@ elif page == "Report":
     proof = st.file_uploader("Upload Proof (Optional)", type=["png","jpg","pdf","mp4","avi","mov","wmv","flv","webm","mkv"])
 
     if st.button("Submit Report"):
-        report_id = str(uuid.uuid4())[:8]
-        category = classify_incident(description)
-        sentiment = sentiment_score(description)
+        if not description.strip() or not location.strip():
+            st.error("Description and Location / Area are required fields.")
+        else:
+            report_id = str(uuid.uuid4())[:8]
+            category = classify_incident(description)
+            sentiment = sentiment_score(description)
 
-        from datetime import datetime
+            from datetime import datetime
 
-        last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        proof_bytes = proof.read() if proof else None
-        proof_type = proof.type if proof else None
+            proof_bytes = proof.read() if proof else None
+            proof_type = proof.type if proof else None
 
-        data = {
-            'report_id': report_id,
-            'category': category,
-            'description': description,
-            'sentiment': sentiment,
-            'urgency': urgency,
-            'location': location,
-            'status': 'Pending',
-            'admin_remark': '',
-            'last_updated': last_updated,
-            'proof': proof_bytes,
-            'proof_type': proof_type
-        }
+            data = {
+                'report_id': report_id,
+                'category': category,
+                'description': description,
+                'sentiment': sentiment,
+                'urgency': urgency,
+                'location': location,
+                'status': 'Pending',
+                'admin_remark': '',
+                'last_updated': last_updated,
+                'proof': proof_bytes,
+                'proof_type': proof_type
+            }
 
-        insert_incident(data)
+            insert_incident(data)
 
 
-        st.success("Report submitted successfully!")
-        st.markdown('<div style="text-align: center; margin: 20px 0;"><span style="font-size: 4em; animation: shieldGlow 1.5s ease-out;">🛡️</span></div>', unsafe_allow_html=True)
-        st.info(f"Your Report ID: {report_id}")
+            st.success("Report submitted successfully!")
+            st.markdown('<div style="text-align: center; margin: 20px 0;"><span style="font-size: 4em; animation: shieldGlow 1.5s ease-out;">🛡️</span></div>', unsafe_allow_html=True)
+            st.info(f"Your Report ID: {report_id}")
 
 # ---------------- TRACK ----------------
 elif page == "Track":
