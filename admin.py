@@ -1,104 +1,101 @@
 import streamlit as st
 import pandas as pd
-from database import get_all_incidents, update_incident
-from datetime import datetime
 import plotly.graph_objects as go
+from database import get_all_incidents, update_incident
 
 def admin_panel():
-    st.markdown(
-        "<h2 style='color:#2E86C1;'>🔐 Admin Dashboard</h2>",
-        unsafe_allow_html=True
-    )
+    # Reuse the same CSS for consistency
+    st.markdown("""
+    <style>
+    /* Global Styles */
+    body {
+        background: linear-gradient(135deg, #1a1c20 0%, #0f2027 100%);
+        color: #f0f2f6;
+        font-family: 'Inter', sans-serif;
+    }
+    h1, h2, h3 { color: white; }
+    .stButton>button {
+        background: linear-gradient(90deg, #ff6b6b 0%, #ee5253 100%);
+        color: white;
+        border-radius: 12px;
+        border: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<h2 style='color:#ff6b6b;'>🔐 Admin Dashboard</h2>", unsafe_allow_html=True)
 
     # ---- Authentication ----
-    password = st.text_input("Enter Admin Password", type="password")
-    if password != "admin123":
-        st.warning("❌ Unauthorized access")
+    if "admin_logged_in" not in st.session_state:
+        st.session_state.admin_logged_in = False
+
+    if not st.session_state.admin_logged_in:
+        password = st.text_input("Enter Admin Password", type="password")
+        if st.button("Login"):
+            if password == "admin123":
+                st.session_state.admin_logged_in = True
+                st.rerun()
+            else:
+                st.error("❌ Unauthorized access")
         return
+
+    if st.button("Logout"):
+        st.session_state.admin_logged_in = False
+        st.rerun()
 
     # ---- Fetch Data ----
     incidents = get_all_incidents()
-    df = pd.DataFrame(incidents)
-
-    if df.empty:
-        st.info("No reports available.")
+    
+    if not incidents:
+        st.info("No reports available in the database yet.")
         return
 
-    # ---- Display All Reports ----
-    st.subheader("📋 All Incident Reports")
-    st.dataframe(df, use_container_width=True)
-
-    st.divider()
-
-    # ---- Update Section ----
-    st.subheader("✏️ Update Report Status")
-
-    report_ids = df["report_id"].tolist()
-    selected_id = st.selectbox("Select Report ID", report_ids)
-
-    selected_row = df[df["report_id"] == selected_id].iloc[0]
-
-    st.info(
-        f"""
-        **Current Status:** {selected_row['status']}
-        **Current Remark:** {selected_row['admin_remark'] or 'None'}
-        """
-    )
-
-    if selected_row.get('proof'):
-        st.subheader("📎 Attached Proof")
-        # proof is URL
-        if selected_row.get('proof_type') and selected_row['proof_type'].startswith('image/'):
-            st.image(selected_row['proof'])
-        elif selected_row.get('proof_type') and selected_row['proof_type'].startswith('video/'):
-            st.video(selected_row['proof'])
-        else:
-            st.markdown(f"[📎 View/Download Proof]({selected_row['proof']})")
-
-    new_status = st.selectbox(
-        "New Status",
-        ["Pending", "Under Review", "Resolved"],
-        index=["Pending", "Under Review", "Resolved"].index(selected_row["status"])
-    )
-
-    remark = st.text_area(
-        "Admin Remark (Visible to complainer)",
-        value=selected_row["admin_remark"] or ""
-    )
-
-    if st.button("✅ Update Report"):
-        last_updated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        updates = {'status': new_status, 'admin_remark': remark, 'last_updated': last_updated}
-        update_incident(selected_id, updates)
-
-        st.success("Report updated successfully 🔄")
-        st.rerun()
+    df = pd.DataFrame(incidents)
 
     # ---- Statistics ----
-    st.divider()
     st.subheader("📊 Incident Statistics")
-
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("Incident Types")
-        fig = go.Figure(data=[go.Bar(x=df["category"].value_counts().index, y=df["category"].value_counts().values)])
-        st.plotly_chart(fig)
+        st.caption("Incident Categories")
+        fig_cat = go.Figure(data=[go.Bar(x=df["category"].value_counts().index, y=df["category"].value_counts().values, marker_color='#ff6b6b')])
+        st.plotly_chart(fig_cat, use_container_width=True)
 
     with col2:
-        st.subheader("Urgency Levels")
-        fig = go.Figure(data=[go.Bar(x=df["urgency"].value_counts().index, y=df["urgency"].value_counts().values)])
-        st.plotly_chart(fig)
+        st.caption("Urgency Levels")
+        fig_urg = go.Figure(data=[go.Pie(labels=df["urgency"].value_counts().index, values=df["urgency"].value_counts().values, hole=.3)])
+        st.plotly_chart(fig_urg, use_container_width=True)
 
-    col3, col4 = st.columns(2)
+    # ---- Update Section ----
+    st.divider()
+    st.subheader("📋 Manage Reports")
 
-    with col3:
-        st.subheader("Area-wise Incidents")
-        fig = go.Figure(data=[go.Bar(x=df["location"].value_counts().index, y=df["location"].value_counts().values)])
-        st.plotly_chart(fig)
+    report_ids = df["report_id"].tolist()
+    selected_id = st.selectbox("Select Report ID to Update", report_ids)
 
-    with col4:
-        st.subheader("Status Distribution")
-        status_counts = df["status"].value_counts()
-        fig = go.Figure(data=[go.Pie(labels=status_counts.index, values=status_counts.values)])
-        st.plotly_chart(fig)
+    selected_row = df[df["report_id"] == selected_id].iloc[0]
+
+    col_details, col_action = st.columns([2, 1])
+
+    with col_details:
+        st.markdown(f"""
+        **Report ID:** `{selected_id}`  
+        **Location:** {selected_row['location']}  
+        **Time:** {selected_row['timestamp']}  
+        **Description:**  
+        > {selected_row['description']}
+        """)
+    
+    with col_action:
+        st.info(f"Current Status: **{selected_row['status']}**")
+        new_status = st.selectbox("Update Status", ["Pending", "Under Review", "Resolved"], 
+                                key="status_select")
+        remark = st.text_area("Admin Remark", value=selected_row['admin_remark'] or "")
+        
+        if st.button("Update Report"):
+            update_incident(selected_id, new_status, remark)
+            st.success("Updated Successfully!")
+            st.rerun()
+
+    st.subheader("All Data")
+    st.dataframe(df)
