@@ -46,6 +46,10 @@ def admin_panel():
     # ---- Fetch Data ----
     incidents = get_all_incidents()
     
+    if incidents is None:
+        st.error("Using existing database connection failed. Please check your connection.")
+        return
+
     if not incidents:
         st.info("No reports available in the database yet.")
         return

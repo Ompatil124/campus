@@ -1,31 +1,46 @@
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv()
 
-url: str = os.environ.get("SUPABASE_URL")
-# Use service role key to bypass RLS policies
-key: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+# Try to get secrets from Streamlit secrets first, then environment variables
+url = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 if not url or not key:
-    raise ValueError("Supabase URL and SERVICE_ROLE_KEY must be set in .env file")
-
-supabase: Client = create_client(url, key)
+    # Don't raise error immediately to allow importing safely, but operations will fail
+    print("Warning: Supabase URL and SERVICE_ROLE_KEY not found.")
+    supabase = None
+else:
+    try:
+        supabase: Client = create_client(url, key)
+    except Exception as e:
+        print(f"Failed to initialize Supabase client: {e}")
+        supabase = None
 
 def init_db():
     """
-    Initializes the database connection.
-    For Supabase, the table creation is handled via the dashboard/SQL editor,
-    so this function is a placeholder or can be used for connection checks.
+    Checks the database connection.
+    Returns True if connected, False otherwise.
     """
-    pass
+    if not supabase:
+        return False
+    try:
+        # Simple health check query
+        supabase.table('incidents').select('count', count='exact').limit(0).execute()
+        return True
+    except Exception as e:
+        print(f"Supabase Connection Check Error: {e}")
+        return False
 
 def upload_proof(file_obj, file_name):
     """
     Uploads a file to Supabase Storage 'proofs' bucket.
     Returns the public URL of the uploaded file.
     """
+    if not supabase: return None
     try:
         bucket_name = "proofs"
         file_path = f"{file_name}"
@@ -49,15 +64,16 @@ def upload_proof(file_obj, file_name):
 def insert_incident(data):
     """
     Inserts a new incident into the Supabase 'incidents' table.
+    Returns the response object or None on failure.
     """
+    if not supabase: return None
     try:
         # Map generic 'timestamp' to 'last_updated' as per actual schema
         payload = data.copy()
+        
+        # Ensure we have a valid timestamp compatible with Supabase (ISO format preferred)
         if 'timestamp' in payload:
             payload['last_updated'] = payload.pop('timestamp')
-        
-        # Remove any keys that shouldn't be sent if they are None/Empty and not nullable in DB?
-        # Based on schema check, most are text.
         
         response = supabase.table('incidents').insert(payload).execute()
         return response
@@ -70,6 +86,7 @@ def get_status(report_id):
     Retrieves the status and admin remark for a given report_id.
     Returns (status, admin_remark) tuple or None if not found.
     """
+    if not supabase: return None
     try:
         response = supabase.table('incidents').select('status, admin_remark').eq('report_id', report_id).execute()
         if response.data and len(response.data) > 0:
@@ -85,6 +102,7 @@ def get_all_incidents():
     Retrieves all incidents, ordered by timestamp descending.
     Returns a list of dictionaries.
     """
+    if not supabase: return []
     try:
         # Sort by last_updated which acts as our timestamp
         response = supabase.table('incidents').select('*').order('last_updated', desc=True).execute()
@@ -104,6 +122,7 @@ def update_incident(report_id, status, remark):
     """
     Updates the status and admin_remark for a specific incident.
     """
+    if not supabase: return None
     try:
         response = supabase.table('incidents').update({
             'status': status, 
@@ -118,6 +137,7 @@ def delete_incident(report_id):
     """
     Deletes an incident from the Supabase 'incidents' table.
     """
+    if not supabase: return None
     try:
         response = supabase.table('incidents').delete().eq('report_id', report_id).execute()
         return response

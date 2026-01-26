@@ -8,7 +8,11 @@ from database import init_db, insert_incident, get_status, upload_proof
 from admin import admin_panel
 
 # Initialize Database
-init_db()
+db_connected = init_db()
+
+if not db_connected:
+    st.error("❌ Database Connection Failed. Please check your Supabase credentials.")
+    st.stop()
 
 # Page Configuration
 st.set_page_config(
@@ -212,17 +216,23 @@ elif page == "Report":
                     file_ext = proof.name.split('.')[-1]
                     file_name = f"{report_id}.{file_ext}"
                     # Upload
-                    from database import upload_proof
+                    # Re-import not needed but ensuring module scope
                     proof_url = upload_proof(proof, file_name)
-                
+                    if not proof_url and proof:
+                         st.warning("⚠️ Warning: Evidence upload failed, but attempting to save report.")
+
                 # Update data with proof URL
                 data['proof'] = proof_url
 
-                # 2. Save to Local DB (now Supabase)
-                insert_incident(data)
+                # 2. Save to Supabase
+                res = insert_incident(data)
                 
-                # 3. Send to Discord
-                if send_to_discord(report_id, proof, data):
+                if res:
+                    # 3. Send to Discord
+                    discord_sent = send_to_discord(report_id, proof, data)
+                    if not discord_sent:
+                        st.warning("⚠️ Report saved, but failed to alert admin on Discord.")
+
                     # SUCCESS STATE
                     st.markdown("""
                         <div class="success-container">
@@ -243,6 +253,8 @@ elif page == "Report":
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
+                else:
+                    st.error("❌ Failed to save report to database. Please try again.")
             else:
                 st.error("Missing fields")
 
