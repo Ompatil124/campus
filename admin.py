@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from database import get_all_incidents, update_incident
+from database import get_all_incidents, update_incident, delete_incident
 
 def admin_panel():
     # Reuse the same CSS for consistency
@@ -95,6 +95,12 @@ def admin_panel():
         if st.button("Update Report"):
             update_incident(selected_id, new_status, remark)
             st.success("Updated Successfully!")
+            st.rerun()
+
+        st.markdown("---")
+        if st.button("🗑️ Delete Report", type="primary"):
+            delete_incident(selected_id)
+            st.warning(f"Report {selected_id} deleted.")
             st.rerun()
 
     st.subheader("All Data")

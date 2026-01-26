@@ -1,75 +1,126 @@
-import sqlite3
 import os
-from datetime import datetime
+from supabase import create_client, Client
+from dotenv import load_dotenv
 
-DB_NAME = "campussafe.db"
+load_dotenv()
+
+url: str = os.environ.get("SUPABASE_URL")
+# Use service role key to bypass RLS policies
+key: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+
+if not url or not key:
+    raise ValueError("Supabase URL and SERVICE_ROLE_KEY must be set in .env file")
+
+supabase: Client = create_client(url, key)
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS incidents (
-            report_id TEXT PRIMARY KEY,
-            category TEXT,
-            description TEXT,
-            sentiment REAL,
-            urgency TEXT,
-            location TEXT,
-            status TEXT,
-            admin_remark TEXT,
-            timestamp TEXT,
-            proof_type TEXT
+    """
+    Initializes the database connection.
+    For Supabase, the table creation is handled via the dashboard/SQL editor,
+    so this function is a placeholder or can be used for connection checks.
+    """
+    pass
+
+def upload_proof(file_obj, file_name):
+    """
+    Uploads a file to Supabase Storage 'proofs' bucket.
+    Returns the public URL of the uploaded file.
+    """
+    try:
+        bucket_name = "proofs"
+        file_path = f"{file_name}"
+        file_obj.seek(0)
+        file_content = file_obj.read()
+        
+        # Upload
+        supabase.storage.from_(bucket_name).upload(
+            file=file_content,
+            path=file_path,
+            file_options={"content-type": file_obj.type}
         )
-    ''')
-    conn.commit()
-    conn.close()
+        
+        # Get Public URL
+        res = supabase.storage.from_(bucket_name).get_public_url(file_path)
+        return res
+    except Exception as e:
+        print(f"Supabase Storage Error: {e}")
+        return None
 
 def insert_incident(data):
+    """
+    Inserts a new incident into the Supabase 'incidents' table.
+    """
     try:
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute('''
-            INSERT INTO incidents (
-                report_id, category, description, sentiment, urgency, 
-                location, status, admin_remark, timestamp, proof_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            data['report_id'], data['category'], data['description'], 
-            data['sentiment'], data['urgency'], data['location'], 
-            data.get('status', 'Pending'), data.get('admin_remark', ''), 
-            data['timestamp'], data.get('proof_type')
-        ))
-        conn.commit()
+        # Map generic 'timestamp' to 'last_updated' as per actual schema
+        payload = data.copy()
+        if 'timestamp' in payload:
+            payload['last_updated'] = payload.pop('timestamp')
+        
+        # Remove any keys that shouldn't be sent if they are None/Empty and not nullable in DB?
+        # Based on schema check, most are text.
+        
+        response = supabase.table('incidents').insert(payload).execute()
+        return response
     except Exception as e:
-        print(f"DB Error: {e}")
-    finally:
-        conn.close()
+        print(f"Supabase Insert Error: {e}")
+        return None
 
 def get_status(report_id):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute('SELECT status, admin_remark FROM incidents WHERE report_id = ?', (report_id,))
-    result = c.fetchone()
-    conn.close()
-    return result
+    """
+    Retrieves the status and admin remark for a given report_id.
+    Returns (status, admin_remark) tuple or None if not found.
+    """
+    try:
+        response = supabase.table('incidents').select('status, admin_remark').eq('report_id', report_id).execute()
+        if response.data and len(response.data) > 0:
+            record = response.data[0]
+            return record.get('status'), record.get('admin_remark')
+        return None
+    except Exception as e:
+        print(f"Supabase Get Status Error: {e}")
+        return None
 
 def get_all_incidents():
-    conn = sqlite3.connect(DB_NAME)
-    # Return as list of dicts for pandas compatibility
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute('SELECT * FROM incidents ORDER BY timestamp DESC')
-    rows = c.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    """
+    Retrieves all incidents, ordered by timestamp descending.
+    Returns a list of dictionaries.
+    """
+    try:
+        # Sort by last_updated which acts as our timestamp
+        response = supabase.table('incidents').select('*').order('last_updated', desc=True).execute()
+        data = response.data if response.data else []
+        
+        # Map 'last_updated' back to 'timestamp' for app compatibility
+        for row in data:
+            if 'last_updated' in row:
+                row['timestamp'] = row['last_updated']
+        
+        return data
+    except Exception as e:
+        print(f"Supabase Get All Error: {e}")
+        return []
 
 def update_incident(report_id, status, remark):
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute('''
-        UPDATE incidents 
-        SET status = ?, admin_remark = ? 
-        WHERE report_id = ?
-    ''', (status, remark, report_id))
-    conn.commit()
-    conn.close()
+    """
+    Updates the status and admin_remark for a specific incident.
+    """
+    try:
+        response = supabase.table('incidents').update({
+            'status': status, 
+            'admin_remark': remark
+        }).eq('report_id', report_id).execute()
+        return response
+    except Exception as e:
+        print(f"Supabase Update Error: {e}")
+        return None
+
+def delete_incident(report_id):
+    """
+    Deletes an incident from the Supabase 'incidents' table.
+    """
+    try:
+        response = supabase.table('incidents').delete().eq('report_id', report_id).execute()
+        return response
+    except Exception as e:
+        print(f"Supabase Delete Error: {e}")
+        return None

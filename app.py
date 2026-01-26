@@ -4,7 +4,7 @@ import requests
 import json
 from datetime import datetime
 from nlp_model import classify_incident, sentiment_score
-from database import init_db, insert_incident, get_status
+from database import init_db, insert_incident, get_status, upload_proof
 from admin import admin_panel
 
 # Initialize Database
@@ -205,10 +205,23 @@ elif page == "Report":
                     'proof_type': proof.type if proof else None
                 }
                 
-                # 1. Save to Local DB
+                # 1. Upload Proof to Supabase Storage if exists
+                proof_url = None
+                if proof:
+                    # Create a unique filename
+                    file_ext = proof.name.split('.')[-1]
+                    file_name = f"{report_id}.{file_ext}"
+                    # Upload
+                    from database import upload_proof
+                    proof_url = upload_proof(proof, file_name)
+                
+                # Update data with proof URL
+                data['proof'] = proof_url
+
+                # 2. Save to Local DB (now Supabase)
                 insert_incident(data)
                 
-                # 2. Send to Discord
+                # 3. Send to Discord
                 if send_to_discord(report_id, proof, data):
                     # SUCCESS STATE
                     st.markdown("""
