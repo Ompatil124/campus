@@ -3,7 +3,7 @@ import uuid
 import requests
 import json
 from datetime import datetime
-from nlp_model import classify_incident, sentiment_score
+from nlp_model import classify_incident, sentiment_score, analyze_incident
 from database import init_db, insert_incident, get_status, upload_proof
 from admin import admin_panel
 
@@ -185,78 +185,170 @@ elif page == "Report":
     st.markdown("<div class='card'><h2>📢 Report an Incident</h2></div>", unsafe_allow_html=True)
     
     with st.form("report_form"):
-        description = st.text_area("Describe the incident")
-        location = st.text_input("Location / Area")
-        urgency = st.selectbox("Urgency", ["Low", "Medium", "High"])
-        proof = st.file_uploader("Evidence (Optional)", type=['png', 'jpg', 'pdf', 'mp3', 'mp4'])
+        description = st.text_area(
+            "Describe the incident",
+            height=150,
+            help="Please provide a detailed description of what happened. Minimum 10 characters.",
+            placeholder="Describe what happened, when, and any other relevant details..."
+        )
         
-        if st.form_submit_button("Submit Report"):
+        # Show character count
+        if description:
+            char_count = len(description)
+            st.caption(f"Characters: {char_count} / 2000")
+        
+        location = st.text_input(
+            "Location / Area",
+            help="Where did this incident occur?",
+            placeholder="e.g., Library, Hostel Block A, Cafeteria..."
+        )
+        
+        urgency = st.selectbox(
+            "Urgency Level",
+            ["Low", "Medium", "High"],
+            help="AI will suggest urgency based on your description"
+        )
+        
+        proof = st.file_uploader(
+            "Evidence (Optional)",
+            type=['png', 'jpg', 'jpeg', 'pdf', 'mp3', 'mp4'],
+            help="Upload any supporting evidence (images, videos, audio, or documents)"
+        )
+        
+        submit_button = st.form_submit_button("🔍 Analyze & Submit Report")
+        
+        if submit_button:
             if description and location:
-                report_id = str(uuid.uuid4())[:8]
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                category = classify_incident(description)
-                sentiment = sentiment_score(description)
+                # Perform comprehensive analysis
+                with st.spinner("🧠 Analyzing your report with AI..."):
+                    analysis = analyze_incident(description)
                 
-                data = {
-                    'report_id': report_id,
-                    'description': description,
-                    'location': location,
-                    'urgency': urgency,
-                    'category': category,
-                    'sentiment': sentiment,
-                    'timestamp': timestamp,
-                    'status': 'Pending',
-                    'proof_type': proof.type if proof else None
-                }
-                
-                # 1. Upload Proof to Supabase Storage if exists
-                proof_url = None
-                if proof:
-                    # Create a unique filename
-                    file_ext = proof.name.split('.')[-1]
-                    file_name = f"{report_id}.{file_ext}"
-                    # Upload
-                    # Re-import not needed but ensuring module scope
-                    proof_url = upload_proof(proof, file_name)
-                    if not proof_url and proof:
-                         st.warning("⚠️ Warning: Evidence upload failed, but attempting to save report.")
-
-                # Update data with proof URL
-                data['proof'] = proof_url
-
-                # 2. Save to Supabase
-                res = insert_incident(data)
-                
-                if res:
-                    # 3. Send to Discord
-                    discord_sent = send_to_discord(report_id, proof, data)
-                    if not discord_sent:
-                        st.warning("⚠️ Report saved, but failed to alert admin on Discord.")
-
-                    # SUCCESS STATE
-                    st.markdown("""
-                        <div class="success-container">
-                            <div class="shield-icon">🛡️</div>
-                            <h2 style="color: #4ecdc4; margin-top: 10px;">Report Securely Filed</h2>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.markdown(f"""
-                    <div class="card" style="border-left: 5px solid #4ecdc4;">
-                        <p style="font-size: 1.1em;">
-                            Your report has been <b>encrypted</b> and sent to the safety team. 
-                            A copy is stored locally for tracking.
-                        </p>
-                        <div style="background: rgba(255,255,255,0.1); padding: 10px; border-radius: 8px; margin-top: 10px;">
-                            <small>REFERENCE ID</small>
-                            <h3 style="margin: 0; color: #ff6b6b; font-family: monospace;">{report_id}</h3>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                # Check if input is valid
+                if not analysis['valid']:
+                    st.error(f"❌ {analysis['error']}")
                 else:
-                    st.error("❌ Failed to save report to database. Please try again.")
+                    # Display AI Analysis Results
+                    st.markdown("---")
+                    st.markdown("### 🤖 AI Analysis Results")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        st.markdown(f"""
+                        <div class="card" style="text-align: center;">
+                            <h4>📂 Category</h4>
+                            <h3 style="color: #ff6b6b;">{analysis['category']}</h3>
+                            <small>Confidence: {analysis['confidence']:.1%}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col2:
+                        sentiment_color = "#4ecdc4" if analysis['sentiment_score'] > 0 else "#ff6b6b"
+                        st.markdown(f"""
+                        <div class="card" style="text-align: center;">
+                            <h4>💭 Sentiment</h4>
+                            <h3 style="color: {sentiment_color};">{analysis['sentiment_label']}</h3>
+                            <small>Score: {analysis['sentiment_score']:.2f}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col3:
+                        emotion_emoji = {
+                            'Fear': '😨',
+                            'Anger': '😠',
+                            'Sadness': '😢',
+                            'Disgust': '🤢',
+                            'Distress': '😰',
+                            'Neutral': '😐'
+                        }
+                        emoji = emotion_emoji.get(analysis['emotion'], '😐')
+                        st.markdown(f"""
+                        <div class="card" style="text-align: center;">
+                            <h4>😊 Emotion</h4>
+                            <h3>{emoji} {analysis['emotion']}</h3>
+                            <small>Intensity: {analysis['emotion_intensity']:.0%}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Urgency suggestion
+                    if analysis['suggested_urgency'] != urgency:
+                        urgency_color = {"Low": "#4ecdc4", "Medium": "#f9ca24", "High": "#ff6b6b"}
+                        st.info(f"💡 **AI Suggestion:** Based on the analysis, this incident appears to be **{analysis['suggested_urgency']}** urgency. You selected **{urgency}**.")
+                    
+                    st.markdown("---")
+                    
+                    # Proceed with submission
+                    report_id = str(uuid.uuid4())[:8]
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    data = {
+                        'report_id': report_id,
+                        'description': description,
+                        'location': location,
+                        'urgency': urgency,
+                        'category': analysis['category'],
+                        'sentiment': analysis['sentiment_score'],
+                        'timestamp': timestamp,
+                        'status': 'Pending',
+                        'proof_type': proof.type if proof else None
+                    }
+                    
+                    # 1. Upload Proof to Supabase Storage if exists
+                    proof_url = None
+                    if proof:
+                        with st.spinner("📤 Uploading evidence..."):
+                            # Create a unique filename
+                            file_ext = proof.name.split('.')[-1]
+                            file_name = f"{report_id}.{file_ext}"
+                            # Upload
+                            proof_url = upload_proof(proof, file_name)
+                            if not proof_url and proof:
+                                st.warning("⚠️ Warning: Evidence upload failed, but attempting to save report.")
+
+                    # Update data with proof URL
+                    data['proof'] = proof_url
+
+                    # 2. Save to Supabase
+                    with st.spinner("💾 Saving report securely..."):
+                        res = insert_incident(data)
+                    
+                    if res:
+                        # 3. Send to Discord
+                        discord_sent = send_to_discord(report_id, proof, data)
+                        if not discord_sent:
+                            st.warning("⚠️ Report saved, but failed to alert admin on Discord.")
+
+                        # SUCCESS STATE
+                        st.markdown("""
+                            <div class="success-container">
+                                <div class="shield-icon">🛡️</div>
+                                <h2 style="color: #4ecdc4; margin-top: 10px;">Report Securely Filed</h2>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        st.markdown(f"""
+                        <div class="card" style="border-left: 5px solid #4ecdc4;">
+                            <p style="font-size: 1.1em;">
+                                Your report has been <b>encrypted</b> and sent to the safety team. 
+                                A copy is stored securely for tracking.
+                            </p>
+                            <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-top: 15px;">
+                                <small>REFERENCE ID</small>
+                                <h3 style="margin: 5px 0; color: #ff6b6b; font-family: monospace;">{report_id}</h3>
+                                <small style="color: #aaa;">Save this ID to track your report status</small>
+                            </div>
+                            <div style="margin-top: 15px; padding: 10px; background: rgba(78, 205, 196, 0.1); border-radius: 8px;">
+                                <p style="margin: 0;"><b>📊 Classification Summary:</b></p>
+                                <p style="margin: 5px 0;">• Category: {analysis['category']} ({analysis['confidence']:.0%} confidence)</p>
+                                <p style="margin: 5px 0;">• Sentiment: {analysis['sentiment_label']} ({analysis['sentiment_score']:.2f})</p>
+                                <p style="margin: 5px 0;">• Emotion: {analysis['emotion']} (Intensity: {analysis['emotion_intensity']:.0%})</p>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.error("❌ Failed to save report to database. Please try again.")
             else:
-                st.error("Missing fields")
+                st.error("❌ Please fill in all required fields (Description and Location).")
 
 # ---------------- TRACK ----------------
 elif page == "Track":

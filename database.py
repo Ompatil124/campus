@@ -6,8 +6,15 @@ import streamlit as st
 load_dotenv()
 
 # Try to get secrets from Streamlit secrets first, then environment variables
-url = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
-key = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+# Helper function to safely get secrets
+def get_secret(key_name):
+    try:
+        return st.secrets.get(key_name)
+    except Exception:
+        return None
+
+url = get_secret("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+key = get_secret("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
 if not url or not key:
     # Don't raise error immediately to allow importing safely, but operations will fail
