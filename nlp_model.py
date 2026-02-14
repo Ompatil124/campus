@@ -59,6 +59,134 @@ def validate_input(text, min_length=10, max_length=2000):
     return True, ""
 
 
+def detect_fake_report(text):
+    """
+    Detects fake, test, or spam reports.
+    Returns (is_fake, reason) tuple.
+    
+    Checks for:
+    - Test patterns (test1, test2, testing, etc.)
+    - Gibberish/random text
+    - Repeated words/characters
+    - Common spam patterns
+    - Low information content
+    """
+    if not text or not isinstance(text, str):
+        return True, "Empty or invalid text"
+    
+    text_lower = text.lower().strip()
+    words = text_lower.split()
+    
+    # 1. Check for test patterns
+    test_patterns = [
+        r'\btest\s*\d+\b',           # test1, test2, test 1
+        r'\btesting\b',              # testing
+        r'\btest\s+test\b',          # test test
+        r'\bsample\s*\d*\b',         # sample, sample1
+        r'\bdemo\s*\d*\b',           # demo, demo1
+        r'\bexample\s*\d*\b',        # example, example1
+        r'\bfake\s+report\b',        # fake report
+        r'\bthis\s+is\s+a\s+test\b', # this is a test
+        r'\bjust\s+testing\b',       # just testing
+        r'\bcheck\s*\d*\b',          # check, check1
+        r'\btry\s*\d*\b',            # try, try1
+        r'\bqwerty\b',               # keyboard pattern
+        r'\basdf\b',                 # keyboard pattern
+        r'\b(abc|xyz)\s*\d*\b',      # abc, xyz patterns
+    ]
+    
+    for pattern in test_patterns:
+        if re.search(pattern, text_lower):
+            return True, "Test/demo report detected. Please submit a real incident."
+    
+    # 2. Check for gibberish (too many consonants or vowels in a row)
+    if re.search(r'[bcdfghjklmnpqrstvwxyz]{6,}', text_lower):
+        return True, "Gibberish detected. Please provide a meaningful description."
+    
+    # 3. Check for repeated words
+    if len(words) >= 3:
+        # Check if more than 50% of words are duplicates
+        unique_words = set(words)
+        if len(unique_words) / len(words) < 0.5:
+            return True, "Too many repeated words. Please provide a detailed description."
+    
+    # 4. Check for single word repeated multiple times
+    word_counts = {}
+    for word in words:
+        if len(word) > 2:  # Ignore short words like "a", "is"
+            word_counts[word] = word_counts.get(word, 0) + 1
+    
+    for word, count in word_counts.items():
+        if count >= 3 and len(words) <= 10:  # Same word 3+ times in short text
+            return True, f"Repeated word '{word}' detected. Please provide a genuine description."
+    
+    # 5. Check for very short words only (no substance)
+    long_words = [w for w in words if len(w) > 3]
+    if len(words) >= 3 and len(long_words) == 0:
+        return True, "No substantial words found. Please provide details."
+    
+    # 6. Check for common spam/placeholder patterns
+    spam_phrases = [
+        'lorem ipsum',
+        'dolor sit amet',
+        'quick brown fox',
+        'the lazy dog',
+        'hello world',
+        'foo bar',
+        'blah blah',
+        'yada yada',
+        'etc etc',
+        'something something',
+    ]
+    
+    for phrase in spam_phrases:
+        if phrase in text_lower:
+            return True, "Placeholder text detected. Please describe a real incident."
+    
+    # 7. Check for number-only or mostly numbers
+    numbers_count = sum(1 for char in text if char.isdigit())
+    if numbers_count / len(text) > 0.5:
+        return True, "Too many numbers. Please provide a descriptive text."
+    
+    # 8. Check for very low information content (too generic)
+    # Count meaningful words (not common stop words)
+    stop_words = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 
+                  'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+                  'would', 'should', 'could', 'may', 'might', 'must', 'can',
+                  'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she',
+                  'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where',
+                  'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more',
+                  'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
+                  'own', 'same', 'so', 'than', 'too', 'very', 'just', 'but',
+                  'and', 'or', 'if', 'because', 'as', 'until', 'while', 'of',
+                  'at', 'by', 'for', 'with', 'about', 'against', 'between',
+                  'into', 'through', 'during', 'before', 'after', 'above',
+                  'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off'}
+    
+    meaningful_words = [w for w in words if w not in stop_words and len(w) > 2]
+    
+    if len(words) >= 5 and len(meaningful_words) < 2:
+        return True, "Not enough meaningful content. Please describe the incident in detail."
+    
+    # 9. Check for single character repeated
+    for char in set(text_lower):
+        if char.isalpha() and text_lower.count(char) / len(text_lower) > 0.4:
+            return True, "Excessive character repetition detected. Please provide a real description."
+    
+    # 10. Check for keyboard mashing patterns
+    keyboard_patterns = [
+        'asdfgh', 'qwerty', 'zxcvbn', 'hjkl', 'yuiop',
+        '123456', '111111', '000000', 'aaaaaa', 'xxxxxx'
+    ]
+    
+    for pattern in keyboard_patterns:
+        if pattern in text_lower.replace(' ', ''):
+            return True, "Keyboard pattern detected. Please submit a genuine report."
+    
+    # All checks passed - appears to be legitimate
+    return False, ""
+
+
 # ==================== CATEGORY CLASSIFICATION ====================
 
 # Training data for incident classification
@@ -419,6 +547,15 @@ def analyze_incident(text):
         return {
             'valid': False,
             'error': error_msg
+        }
+    
+    # Check for fake/test reports
+    is_fake, fake_reason = detect_fake_report(text)
+    if is_fake:
+        return {
+            'valid': False,
+            'error': fake_reason,
+            'is_fake': True
         }
     
     # Preprocess
