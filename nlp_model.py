@@ -64,6 +64,7 @@ def detect_fake_report(text):
     Detects fake, test, or spam reports.
     Returns (is_fake, reason) tuple.
     
+    
     Checks for:
     - Test patterns (test1, test2, testing, etc.)
     - Gibberish/random text
@@ -77,22 +78,79 @@ def detect_fake_report(text):
     text_lower = text.lower().strip()
     words = text_lower.split()
     
-    # 1. Check for test patterns
+    # 1. Check for test patterns (expanded)
     test_patterns = [
+        # Test variations
         r'\btest\s*\d+\b',           # test1, test2, test 1
         r'\btesting\b',              # testing
         r'\btest\s+test\b',          # test test
+        r'\btest\s*report\b',        # test report
+        r'\btest\s*incident\b',      # test incident
+        r'\btest\s*case\b',          # test case
+        r'\btester\b',               # tester
+        r'\btests\b',                # tests
+        
+        # Sample/Demo variations
         r'\bsample\s*\d*\b',         # sample, sample1
         r'\bdemo\s*\d*\b',           # demo, demo1
         r'\bexample\s*\d*\b',        # example, example1
+        r'\bdummy\s*\d*\b',          # dummy, dummy1
+        r'\bmock\s*\d*\b',           # mock, mock1
+        
+        # Fake indicators
         r'\bfake\s+report\b',        # fake report
+        r'\bfake\s+incident\b',      # fake incident
+        r'\bfake\s+submission\b',    # fake submission
+        r'\bnot\s+real\b',           # not real
+        r'\bjust\s+kidding\b',       # just kidding
+        
+        # Testing phrases
         r'\bthis\s+is\s+a\s+test\b', # this is a test
         r'\bjust\s+testing\b',       # just testing
+        r'\btrying\s+to\s+test\b',   # trying to test
+        r'\btest\s+run\b',           # test run
+        r'\btest\s+submission\b',    # test submission
+        
+        # Check/Try variations
         r'\bcheck\s*\d*\b',          # check, check1
+        r'\bchecking\b',             # checking
         r'\btry\s*\d*\b',            # try, try1
+        r'\btrying\b',               # trying
+        r'\btrial\b',                # trial
+        
+        # Keyboard patterns
         r'\bqwerty\b',               # keyboard pattern
         r'\basdf\b',                 # keyboard pattern
+        r'\bzxcv\b',                 # keyboard pattern
+        r'\bhjkl\b',                 # keyboard pattern
+        r'\byuiop\b',                # keyboard pattern
+        
+        # ABC/XYZ patterns
         r'\b(abc|xyz)\s*\d*\b',      # abc, xyz patterns
+        r'\babcd\b',                 # abcd
+        r'\b123\s*abc\b',            # 123 abc
+        
+        # Spam indicators
+        r'\bspam\b',                 # spam
+        r'\bjunk\b',                 # junk
+        r'\bgarbage\b',              # garbage
+        r'\btrash\b',                # trash
+        r'\bnonsense\b',             # nonsense
+        r'\brandom\b',               # random
+        
+        # Placeholder indicators
+        r'\bplaceholder\b',          # placeholder
+        r'\btemp\s*\d*\b',           # temp, temp1
+        r'\btemporary\b',            # temporary
+        r'\btbd\b',                  # to be determined
+        r'\btba\b',                  # to be announced
+        
+        # Debug/Dev patterns
+        r'\bdebug\b',                # debug
+        r'\bdebugging\b',            # debugging
+        r'\bdev\s*\d*\b',            # dev, dev1
+        r'\bprod\b',                 # prod
+        r'\bstaging\b',              # staging
     ]
     
     for pattern in test_patterns:
@@ -366,6 +424,28 @@ TRAINING_DATA = {
         'suggestion for more green spaces on campus',
         'issue with hostel room maintenance delay',
         'request for extended cafeteria menu options'
+    ],
+    'Fake/Spam': [
+        'test1 test2 test3',
+        'testing testing 123',
+        'sample report here',
+        'demo incident submission',
+        'asdfgh qwerty keyboard',
+        'xxxxxx yyyyyy zzzzz',
+        'aaaaaa bbbbbb cccccc',
+        'help help help help',
+        'test test test test',
+        'lorem ipsum dolor sit',
+        'hello world foo bar',
+        'blah blah blah blah',
+        '123456 789 numbers only',
+        'qwerty asdf zxcv hjkl',
+        'random gibberish nonsense text',
+        'spam junk garbage trash',
+        'placeholder temporary dummy',
+        'checking trying testing debug',
+        'abc xyz 123 test pattern',
+        'not real fake report submission'
     ]
 }
 
@@ -564,6 +644,25 @@ def analyze_incident(text):
     # Classification
     category, confidence = classify_incident(cleaned_text, return_confidence=True)
     
+    # Secondary fake detection: Check if classified as Fake/Spam
+    is_likely_fake = False
+    fake_warning = ""
+    
+    if category == "Fake/Spam":
+        if confidence > 0.5:  # High confidence it's fake
+            # Reject it completely
+            return {
+                'valid': False,
+                'error': "This appears to be a test or spam submission. Please provide a genuine incident report.",
+                'is_fake': True,
+                'category': category,
+                'confidence': confidence
+            }
+        else:
+            # Low confidence, flag but allow with warning
+            is_likely_fake = True
+            fake_warning = "⚠️ Warning: This report appears suspicious. Please ensure it's a genuine incident."
+    
     # Sentiment analysis
     sentiment = sentiment_score(cleaned_text)
     sentiment_label = get_sentiment_label(sentiment)
@@ -574,7 +673,7 @@ def analyze_incident(text):
     # Urgency suggestion
     urgency = get_urgency_suggestion(cleaned_text, category, sentiment)
     
-    return {
+    result = {
         'valid': True,
         'category': category,
         'confidence': confidence,
@@ -585,3 +684,10 @@ def analyze_incident(text):
         'suggested_urgency': urgency,
         'cleaned_text': cleaned_text
     }
+    
+    # Add warning if suspicious
+    if is_likely_fake:
+        result['warning'] = fake_warning
+        result['is_suspicious'] = True
+    
+    return result
